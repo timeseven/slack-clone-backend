@@ -105,7 +105,7 @@ async def request_verify_email(auth_service: AuthServiceDep, data: RequestVerify
 @auth_router.post("/refresh-token", response_model=CustomResponse)
 async def refresh_token(
     auth_service: AuthServiceDep,
-    refresh_token: Annotated[str, Cookie(alias="refresh_token")],
+    refresh_token: Annotated[str | None, Cookie(alias="refresh_token")] = None,
 ):
     response = await auth_service.refresh_token(refresh_token=refresh_token)
     return success_response(response=response, message="Token refreshed successfully")

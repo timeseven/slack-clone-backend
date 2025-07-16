@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi.responses import ORJSONResponse
 from pydantic import EmailStr
@@ -22,6 +24,8 @@ from app.modules.notifications.async_tasks.interface import (
     IAsyncNotificationService,
 )
 from app.modules.users.interface import IUserService, UserDBCreate, UserDBUpdate
+
+MAX_DEVICES = 3
 
 
 class AuthService(IAuthService):
@@ -81,7 +85,8 @@ class AuthService(IAuthService):
             str(user.id),
         )
 
-        # Create refresh token
+        # Create refresh token for multiple devices
+        refresh_token_id = str(uuid4())
         refresh_token, refresh_expires_at = generate_token(
             "refresh_token",
             settings.REFRESH_SECRET_KEY,
@@ -90,20 +95,39 @@ class AuthService(IAuthService):
             str(user.id),
         )
 
-        # Store refresh token
+        # Store refresh token by refresh_token_id
         await set_redis_value(
             redis=self.redis,
-            name=f"user_refresh_token:{user.id}",
-            value=refresh_token,
+            name=f"refresh_token:{refresh_token_id}",
+            value=json.dumps(
+                {
+                    "user_id": str(user.id),
+                    "refresh_token": refresh_token,
+                    "created_at": datetime.now(tz=timezone.utc).isoformat(),
+                }
+            ),
             expires_in=refresh_expires_at,
         )
+
+        # Track all token_ids for this user
+        await self.redis.lpush(f"user_refresh_tokens:{user.id}", refresh_token_id)
+
+        # Enforce device limit: kick out oldest if necessary
+        token_ids = await self.redis.lrange(f"user_refresh_tokens:{user.id}", 0, -1)
+        if len(token_ids) > MAX_DEVICES:
+            excess_ids = token_ids[MAX_DEVICES:]
+            for token_id in excess_ids:
+                await self.redis.delete(f"refresh_token:{token_id}")
+                await self.redis.lrem(f"user_refresh_tokens:{user.id}", 0, token_id)
+        # Ensure only MAX_DEVICES are stored
+        await self.redis.ltrim(f"user_refresh_tokens:{user.id}", 0, MAX_DEVICES - 1)
 
         # Set cookies
         set_token_cookies(
             self.response,
             access_token,
             access_expires_at,
-            refresh_token,
+            refresh_token_id,  # Return refresh_token_id instead of refresh_token
             refresh_expires_at,
         )
 
@@ -178,19 +202,22 @@ class AuthService(IAuthService):
         if refresh_token is None:
             raise InvalidCredentials(detail="Invalid refresh token")
 
-        # Step 1: Decode the refresh token and get the user
-        user = await self.user_service.get_user_from_token(
-            token=refresh_token,
-            secret_key=settings.REFRESH_SECRET_KEY,
-        )
-
-        # Step 2: Validate the refresh token against the one stored in Redis
-        redis_token_key = f"user_refresh_token:{user.id}"
-        stored_token = await get_redis_value(redis=self.redis, name=redis_token_key)
-        if stored_token != refresh_token:
+        redis_token_key = f"refresh_token:{refresh_token}"  # refresh_token here is refresn_token_id
+        stored = await get_redis_value(redis=self.redis, name=redis_token_key)
+        if not stored:
             raise InvalidCredentials(detail="Invalid refresh token")
 
-        # Step 3: Generate a new access token
+        data = json.loads(stored)
+        stored_refresh_token = data.get("refresh_token")
+        user_id = data.get("user_id")
+
+        user = await self.user_service.get_user_from_token(
+            token=stored_refresh_token, secret_key=settings.REFRESH_SECRET_KEY
+        )
+
+        if user is None or str(user.id) != user_id:
+            raise InvalidCredentials(detail="Invalid refresh token")
+
         access_token, access_expires_at = generate_token(
             "access_token",
             settings.ACCESS_SECRET_KEY,
