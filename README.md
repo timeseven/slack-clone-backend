@@ -59,7 +59,7 @@ Use uv to install dependencies
 uv venv
 uv sync
 ```
-Then user just to run the project
+Then use just to run the project
 ```
 just migrate  # Migrate db
 just run      # Start FastAPI server
