@@ -3,6 +3,14 @@
 This is a modular, real-time backend built with FastAPI. It supports messaging, notifications, workspace management, and async job handling with ARQ. Designed with scalability, modularity, and modern API practices in mind.
 
 ---
+## 🛠 Tech Stack
+
+- **FastAPI** – Modern, high-performance web framework for building APIs
+- **ARQ** – Async task queue based on Redis
+- **PostgreSQL + asyncpg** – Asynchronous PostgreSQL driver for efficient DB access
+- **Socket.IO (python-socketio)** – Real-time WebSocket communication layer
+- **S3 (boto3)** – File upload and storage support via AWS S3
+- **Alembic** – Database migrations
 
 ## 🚀 Features
 
