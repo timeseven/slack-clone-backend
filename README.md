@@ -65,3 +65,7 @@ just migrate  # Migrate db
 just run      # Start FastAPI server
 just arq      # Start ARQ worker
 ```
+
+## 📄 License
+
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
